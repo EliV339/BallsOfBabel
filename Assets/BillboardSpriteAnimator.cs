@@ -128,8 +128,9 @@ public class BillboardSpriteAnimator : MonoBehaviour
         // Auto-find references
         if (ballController == null)
             ballController = GetComponentInParent<BallController>();
-        if (ballController != null)
-            rb = ballController.GetComponent<Rigidbody>();
+        
+        // Grab the Rigidbody generically so it works for Enemies and Bosses too!
+        rb = GetComponentInParent<Rigidbody>();
 
         // Remember the parent ball transform, then UNPARENT so we don't
         // inherit the Rigidbody's spin. We'll manually follow it in LateUpdate.
@@ -245,8 +246,9 @@ public class BillboardSpriteAnimator : MonoBehaviour
     bool IsGrounded()
     {
         float   dist  = ballController != null ? ballController.groundCheckDistance : 0.55f;
-        Vector3 origin = ballController != null ? ballController.transform.position : transform.parent.position;
-        LayerMask mask = ballController != null ? ballController.groundLayer : Physics.DefaultRaycastLayers;
+        // Must use followTarget since transform.parent was set to null in Start()
+        Vector3 origin = followTarget != null ? followTarget.position : transform.position;
+        LayerMask mask = ballController != null ? ballController.groundLayer : ~0; // Default to 'Everything' LayerMask
         return Physics.Raycast(origin, Vector3.down, dist, mask);
     }
 
@@ -304,10 +306,8 @@ public class BillboardSpriteAnimator : MonoBehaviour
     {
         if (cam == null) return;
 
-        // Cylindrical billboard: face camera on Y axis only (stays upright)
-        Vector3 dir = transform.position - cam.transform.position;
-        dir.y = 0f;
-        if (dir.sqrMagnitude < 0.001f) return;
-        transform.rotation = Quaternion.LookRotation(dir.normalized);
+        // Spherical billboard: Face the camera directly on all axes (left/right and up/down)
+        // Matching the camera's exact rotation prevents skewing at the edges of the screen
+        transform.rotation = cam.transform.rotation;
     }
 }

@@ -468,7 +468,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 299332544
+  GlobalObjectIdHash: 3671802159
   InScenePlacedSourceGlobalObjectIdHash: 3671802159
   DeferredDespawnTick: 0
   Ownership: 1
@@ -509,6 +509,7 @@ MonoBehaviour:
   damageCooldown: 1.5
   currentHealth:
     m_InternalValue: 3
+  isCutsceneLocked: 0
   moveAction:
     m_Name: Move
     m_Type: 0
@@ -659,6 +660,15 @@ MonoBehaviour:
       m_Groups: 
       m_Action: Brake
       m_Flags: 0
+    m_Flags: 0
+  interactAction:
+    m_Name: Interact
+    m_Type: 0
+    m_ExpectedControlType: 
+    m_Id: 304551c0-c351-41cc-96c8-3f096ecf1c88
+    m_Processors: 
+    m_Interactions: 
+    m_SingletonActionBindings: []
     m_Flags: 0
   brakeFriction: 0.052
   dashForce: 15

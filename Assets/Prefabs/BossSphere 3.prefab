@@ -421,7 +421,7 @@ GameObject:
   - component: {fileID: 940499172144665016}
   - component: {fileID: -5220483887804599817}
   m_Layer: 0
-  m_Name: BossSphere
+  m_Name: BossSphere 3
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -533,7 +533,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 3459340176
+  GlobalObjectIdHash: 3717923357
   InScenePlacedSourceGlobalObjectIdHash: 0
   DeferredDespawnTick: 0
   Ownership: 1
@@ -646,6 +646,11 @@ MonoBehaviour:
   normalTextColor: {r: 1, g: 1, b: 1, a: 1}
   rageTextColor: {r: 1, g: 0.3, b: 0, a: 1}
   colorFadeSpeed: 5
+  isFrozen: 0
+  onDeath:
+    m_PersistentCalls:
+      m_Calls: []
+  progressionRole: 1
 --- !u!1 &6407290406355901721
 GameObject:
   m_ObjectHideFlags: 0

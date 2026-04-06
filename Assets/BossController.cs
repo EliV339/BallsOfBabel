@@ -19,6 +19,13 @@ public enum BossState
     Shockwaving
 }
 
+public enum BossProgressionRole
+{
+    None,            // Doesn't affect tower progression
+    RegularBoss,     // Counts as 1/3, 2/3 etc.
+    FinalBoss        // Unlocks the bottom gate
+}
+
 public class BossController : NetworkBehaviour
 {
     // ─── Preset ───────────────────────────────────────────────────
@@ -160,6 +167,13 @@ public class BossController : NetworkBehaviour
 
     /// <summary>Set by FreezeAIStep / AIFreezeManager to pause AI simulation server-side.</summary>
     [HideInInspector] public bool isFrozen = false;
+
+    // ─── Events ───────────────────────────────────────────────────
+    [Header("Events & Progression")]
+    public UnityEngine.Events.UnityEvent onDeath;
+    [Tooltip("How this boss affects the Tower progression when it dies.")]
+    public BossProgressionRole progressionRole = BossProgressionRole.None;
+    private bool isDead = false;
 
     // ─── Lifecycle ────────────────────────────────────────────────
 
@@ -874,8 +888,20 @@ public class BossController : NetworkBehaviour
 
     private void Die()
     {
-        if (!IsServer) return;
+        if (!IsServer || isDead) return;
+        isDead = true;
+        
         Debug.Log($"[Boss] {bossName} has been defeated!");
+        onDeath?.Invoke();
+
+        if (GameProgressionManager.Instance != null)
+        {
+            if (progressionRole == BossProgressionRole.RegularBoss)
+                GameProgressionManager.Instance.CompleteGenericObjective();
+            else if (progressionRole == BossProgressionRole.FinalBoss)
+                GameProgressionManager.Instance.UnlockFinalState();
+        }
+
         if (IsSpawned) GetComponent<NetworkObject>().Despawn();
         else Destroy(gameObject);
     }

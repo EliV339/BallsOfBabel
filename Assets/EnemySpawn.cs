@@ -132,9 +132,13 @@ public class EnemySpawn : NetworkBehaviour
 
     private IEnumerator SpawnEncounterWave()
     {
-        for (int i = 0; i < spawnEntries.Length; i++)
+        // Cache the array defensively so that if StopSpawningPrefabName alters the global array
+        // while this coroutine is yielding, we don't encounter index out of bounds errors.
+        SpawnEntry[] waveEntries = spawnEntries;
+        
+        for (int i = 0; i < waveEntries.Length; i++)
         {
-            SpawnEntry entry = spawnEntries[i];
+            SpawnEntry entry = waveEntries[i];
             if (entry.prefab == null) continue;
 
             for (int j = 0; j < entry.count; j++)
@@ -176,11 +180,45 @@ public class EnemySpawn : NetworkBehaviour
         if (netObj != null)
             netObj.Spawn();
 
-        activeEnemies.Add(spawned);
-
         EnemyPlayer enemyScript = spawned.GetComponent<EnemyPlayer>();
         if (enemyScript != null)
             enemyScript.SetHomeBase(transform);
+
+        BossController bossScript = spawned.GetComponent<BossController>();
+        if (bossScript != null)
+        {
+            bossScript.SetHomeBase(transform);
+            
+            // Programmatically hook up the spawner to stop spawning this prefab if it dies
+            string spawnedBossName = prefab.name;
+            bossScript.onDeath.AddListener(() => {
+                StopSpawningPrefabName(spawnedBossName);
+            });
+        }
+    }
+
+    public void StopSpawningPrefabName(string prefabName)
+    {
+        if (!IsServer) return;
+        
+        List<SpawnEntry> newEntries = new List<SpawnEntry>();
+        bool removedAny = false;
+        
+        foreach (var entry in spawnEntries)
+        {
+            if (entry.prefab != null && entry.prefab.name == prefabName)
+            {
+                removedAny = true;
+                continue; // Skip it so it doesn't get added to the new list
+            }
+            newEntries.Add(entry);
+        }
+
+        if (removedAny)
+        {
+            spawnEntries = newEntries.ToArray();
+            Debug.Log($"[EnemySpawn] Boss {prefabName} was defeated. Removed from spawn pool of {gameObject.name}");
+        }
     }
 
     private void CleanDeadEnemies()
