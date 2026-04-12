@@ -20,9 +20,14 @@ public class DialogueUI : MonoBehaviour
     [SerializeField] private TextMeshProUGUI bodyText;
     [SerializeField] private Image portraitImage;
     [SerializeField] private GameObject continuePrompt; // e.g. "▼ Press E"
+    [SerializeField] private Transform choicesContainer;
+    [SerializeField] private GameObject choiceButtonPrefab;
 
     [Header("Typewriter")]
     [SerializeField] private float charsPerSecond = 30f;
+
+    private DialogueTree _currentTree;
+    private DialogueNode _currentNode;
 
     private Coroutine _typewriterCoroutine;
     private string _currentFullText;
@@ -60,6 +65,75 @@ public class DialogueUI : MonoBehaviour
         _typewriterCoroutine = StartCoroutine(TypewriterRoutine());
     }
 
+    /// <summary>Starts a branching dialogue from a JSON TextAsset.</summary>
+    public void ShowDialogueTree(TextAsset jsonAsset, Action onConfirm)
+    {
+        if (jsonAsset == null) return;
+        _currentTree = JsonUtility.FromJson<DialogueTree>(jsonAsset.text);
+        if (_currentTree == null || _currentTree.nodes == null || _currentTree.nodes.Count == 0) return;
+
+        // Find the start node
+        _currentNode = _currentTree.nodes.Find(n => n.id == "start") ?? _currentTree.nodes[0];
+        
+        DisplayNode(_currentNode, onConfirm);
+    }
+
+    private void DisplayNode(DialogueNode node, Action onConfirm)
+    {
+        _currentNode = node;
+        DialogueLine line = new DialogueLine()
+        {
+            speakerName = node.speakerName,
+            text = node.text
+        };
+        ShowLine(line, onConfirm);
+    }
+
+    private void ShowChoices()
+    {
+        if (choicesContainer == null || choiceButtonPrefab == null) return;
+        if (_currentNode == null || _currentNode.choices == null || _currentNode.choices.Count == 0) return;
+
+        continuePrompt?.SetActive(false);
+
+        foreach (var choice in _currentNode.choices)
+        {
+            GameObject btnObj = Instantiate(choiceButtonPrefab, choicesContainer);
+            var btnText = btnObj.GetComponentInChildren<TextMeshProUGUI>();
+            if (btnText != null) btnText.text = choice.text;
+
+            var btn = btnObj.GetComponent<Button>();
+            if (btn != null)
+            {
+                // Capture the choice locally for the lambda
+                string nextId = choice.nextNodeId;
+                btn.onClick.AddListener(() => SelectChoice(nextId));
+            }
+        }
+    }
+
+    private void SelectChoice(string nextNodeId)
+    {
+        // Clear choices
+        foreach (Transform child in choicesContainer) Destroy(child.gameObject);
+
+        if (string.IsNullOrEmpty(nextNodeId))
+        {
+            Hide();
+            return;
+        }
+
+        DialogueNode nextNode = _currentTree.nodes.Find(n => n.id == nextNodeId);
+        if (nextNode != null)
+        {
+            DisplayNode(nextNode, _onConfirm);
+        }
+        else
+        {
+            Hide();
+        }
+    }
+
     /// <summary>Force-hide the panel (called by CutscenePlayer.Cleanup).</summary>
     public void Hide()
     {
@@ -84,9 +158,18 @@ public class DialogueUI : MonoBehaviour
             if (_typewriterCoroutine != null) StopCoroutine(_typewriterCoroutine);
             if (bodyText != null) bodyText.text = _currentFullText;
             _typewriterDone = true;
-            continuePrompt?.SetActive(true);
+
+            if (_currentNode != null && _currentNode.choices != null && _currentNode.choices.Count > 0)
+                ShowChoices();
+            else
+                continuePrompt?.SetActive(true);
+
             return;
         }
+
+        // If we have choices, we MUST pick one; Confirm key does nothing
+        if (_currentNode != null && _currentNode.choices != null && _currentNode.choices.Count > 0)
+            return;
 
         // Advance to next line
         var cb = _onConfirm;
@@ -110,7 +193,11 @@ public class DialogueUI : MonoBehaviour
         }
 
         _typewriterDone = true;
-        continuePrompt?.SetActive(true);
+        
+        if (_currentNode != null && _currentNode.choices != null && _currentNode.choices.Count > 0)
+            ShowChoices();
+        else
+            continuePrompt?.SetActive(true);
     }
 
     private void Update()

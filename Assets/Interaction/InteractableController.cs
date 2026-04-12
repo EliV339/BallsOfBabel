@@ -106,6 +106,10 @@ public class InteractableController : MonoBehaviour
                 Debug.Log("[InteractableController] Shop type — not yet implemented.");
                 break;
 
+            case InteractionType.DialogueTree:
+                DialogueUI.Instance?.ShowDialogueTree(data.jsonDialogueTree, null);
+                break;
+
             case InteractionType.Custom:
                 data.onCustomInteract?.Invoke();
                 break;

@@ -1,7 +1,7 @@
 using UnityEngine;
 using UnityEngine.Events;
 
-public enum InteractionType { Dialogue, Shop, Cutscene, Custom }
+public enum InteractionType { Dialogue, Shop, Cutscene, Custom, DialogueTree }
 public enum InteractionMode { PressToInteract, AutoDetect }
 
 [System.Serializable]
@@ -39,6 +39,9 @@ public class InteractionData : ScriptableObject
 
     [Header("Content — Dialogue (quick, no CutsceneData needed)")]
     public DialogueLine[] dialogueLines;
+
+    [Header("Content — JSON Dialogue Tree")]
+    public TextAsset jsonDialogueTree;
 
     [Header("Content — Cutscene")]
     public CutsceneData cutscene;
