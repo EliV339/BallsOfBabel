@@ -297,7 +297,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 76b51b8f411a1294f95faf284118d92f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BillboardSpriteAnimator
-  spritesheet: {fileID: 2800000, guid: dbfc8a4cee921ab4da0792655b41f9a6, type: 3}
+  spritesheet: {fileID: 2800000, guid: d76519357cffb574eabe58b11cf6d248, type: 3}
   cols: 4
   rows: 3
   fps: 8
