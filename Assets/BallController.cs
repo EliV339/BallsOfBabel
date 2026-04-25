@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using Unity.Netcode;
 using System.Collections;
+using System.Collections.Generic;
 
 public class BallController : NetworkBehaviour
 {
@@ -19,6 +20,35 @@ public class BallController : NetworkBehaviour
     private float lastDamageTime = -10f; // Initialize to allow immediate damage
     private Vector3 spawnPosition;
     private Quaternion spawnRotation;
+
+    // ═══ CLASS SYSTEM ═════════════════════════════════════════════
+    [Header("Class System")]
+    [HideInInspector] public bool movementLocked = false;
+
+    public NetworkVariable<int> playerClass = new NetworkVariable<int>(
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    // Light class — crit
+    [HideInInspector] public float critChance = 0f;
+    [HideInInspector] public float critDamagePercent = 0.15f;
+    [HideInInspector] public bool hasRescueDash = false;
+
+    // Tank class — shield HP + wall penalty
+    public NetworkVariable<float> shieldHealth = new NetworkVariable<float>(
+        0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    [HideInInspector] public float maxShieldHealth = 0f;
+    [HideInInspector] public float wallBouncePenalty = 0f;
+
+    // Healer class — uber meter + immortality
+    public NetworkVariable<float> uberMeter = new NetworkVariable<float>(
+        0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<bool> isImmortal = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    // Tank bubble — set each frame by TankAbility if inside a bubble
+    [HideInInspector] public bool insideTankBubble = false;
+
+    private PlayerClassManager classManager;
     /// <summary>Set by LockPlayerStep. Suppresses camera snap on respawn during cutscenes.</summary>
     public bool isCutsceneLocked = false;
     /// <summary>Exposes the camera controller to CutsceneContext without breaking encapsulation.</summary>
@@ -185,6 +215,10 @@ public class BallController : NetworkBehaviour
 
             // Set my name if I have one saved (e.g. from UI)
             SetPlayerNameServerRpc(NetworkManagerUI.LocalPlayerName);
+
+            // ── Initialize Class System ──
+            classManager = gameObject.AddComponent<PlayerClassManager>();
+            classManager.Initialize(this);
         }
         else
         {
@@ -236,6 +270,10 @@ public class BallController : NetworkBehaviour
     void FixedUpdate()
     {
         if (!IsOwner) return;
+        if (movementLocked) return; // Locked until class is chosen
+
+        // Reset bubble flag each physics tick (TankAbility re-sets it if still inside)
+        insideTankBubble = false;
 
         // Read the movement input value
         Vector2 moveInput = moveAction.ReadValue<Vector2>();
@@ -510,23 +548,45 @@ public class BallController : NetworkBehaviour
         // Handle damage to EnemyPlayer or BossController
         float impactSpeed = collision.relativeVelocity.magnitude;
         float damageAmount = impactSpeed * damageMultiplier;
+
+        // ── Light class: Critical Strike ──
+        bool isCrit = false;
+        if (critChance > 0f && Random.value < critChance)
+            isCrit = true;
+
         bool hitEnemy = false;
 
         EnemyPlayer enemy = collision.gameObject.GetComponent<EnemyPlayer>();
         if (enemy != null && damageAmount > 0.1f)
         {
-            bool killsEnemy = enemy.currentHealth.Value - damageAmount <= 0f;
-            enemy.TakeDamage(damageAmount);
-            if (killsEnemy) spriteAnimator?.TriggerGoal();
+            float finalDmg = damageAmount;
+            if (isCrit) finalDmg += enemy.maxHealth * critDamagePercent;
+
+            bool killsEnemy = enemy.currentHealth.Value - finalDmg <= 0f;
+            enemy.TakeDamage(finalDmg);
+            if (isCrit) Debug.Log($"<color=yellow>★ CRIT!</color> {finalDmg:F0} damage");
+            if (killsEnemy)
+            {
+                spriteAnimator?.TriggerGoal();
+                OnEnemyKilled();
+            }
             hitEnemy = true;
         }
 
         BossController boss = collision.gameObject.GetComponent<BossController>();
         if (boss != null && damageAmount > 0.1f)
         {
-            bool killsBoss = boss.currentHealth.Value - damageAmount <= 0f;
-            boss.TakeDamage(damageAmount);
-            if (killsBoss) spriteAnimator?.TriggerGoal();
+            float finalDmg = damageAmount;
+            if (isCrit) finalDmg += boss.maxHealth * critDamagePercent;
+
+            bool killsBoss = boss.currentHealth.Value - finalDmg <= 0f;
+            boss.TakeDamage(finalDmg);
+            if (isCrit) Debug.Log($"<color=yellow>★ CRIT!</color> {finalDmg:F0} damage");
+            if (killsBoss)
+            {
+                spriteAnimator?.TriggerGoal();
+                OnEnemyKilled();
+            }
             hitEnemy = true;
         }
 
@@ -547,6 +607,14 @@ public class BallController : NetworkBehaviour
                 pushDirection.y = 0.5f;
                 enemyRb.AddForce(pushDirection.normalized * impactSpeed * enemyKnockbackForce * knockbackMult, ForceMode.Impulse);
             }
+        }
+
+        // ── Tank: Wall bounce penalty (hit static/non-enemy geometry) ──
+        if (!hitEnemy && wallBouncePenalty > 0f && collision.gameObject.GetComponent<BallController>() == null)
+        {
+            TankAbility tankAbility = GetComponent<TankAbility>();
+            if (tankAbility != null && tankAbility.enabled)
+                tankAbility.ApplyWallBouncePenalty();
         }
 
         BallController otherPlayer = collision.gameObject.GetComponent<BallController>();
@@ -585,17 +653,39 @@ public class BallController : NetworkBehaviour
         // Only server can modify NetworkVariable
         if (!IsServer) return;
 
-        // Check for mercy period (mercy check logic remains server-side for security)
-        // Note: we'd ideally sync lastDamageTime but for now we'll just check it here
+        // ── Immortality check (Healer uber) ──
+        if (isImmortal.Value) return;
+
+        // ── Tank bubble check ──
+        if (insideTankBubble) return;
+
+        // Check for mercy period
         if (Time.time < lastDamageTime + damageCooldown) return;
 
-        currentHealth.Value -= damage;
         lastDamageTime = Time.time;
+
+        // ── Tank: Shield absorbs damage first ──
+        if (shieldHealth.Value > 0f)
+        {
+            float remaining = shieldHealth.Value - damage;
+            if (remaining >= 0f)
+            {
+                shieldHealth.Value = remaining;
+                return; // Shield absorbed all damage
+            }
+            else
+            {
+                shieldHealth.Value = 0f;
+                damage = Mathf.Abs(Mathf.FloorToInt(remaining)); // overflow to health
+            }
+        }
+
+        currentHealth.Value -= damage;
 
         if (currentHealth.Value <= 0)
         {
             currentHealth.Value = 0;
-            RespawnClientRpc(); // Tell the client to reset position
+            RespawnClientRpc();
         }
     }
 
@@ -647,6 +737,248 @@ public class BallController : NetworkBehaviour
         currentHealth.Value = maxHealth;
         lastDamageTime = -10f; // Reset mercy delay
     }
+
+    // ═══ CLASS SYSTEM — RPCs ══════════════════════════════════════
+
+    [ServerRpc]
+    public void SetPlayerClassServerRpc(int classType)
+    {
+        playerClass.Value = classType;
+    }
+
+    [ServerRpc]
+    public void SpawnBotTeamServerRpc(int excludedClassType)
+    {
+        if (!IsServer) return;
+        
+        for (int i = 1; i <= 3; i++)
+        {
+            if (i == excludedClassType) continue;
+            
+            Vector3 spawnPos = transform.position + new Vector3(Random.Range(-5f, 5f), 5f, Random.Range(-5f, 5f));
+            if (PlayerSpawnManager.Instance != null)
+            {
+                spawnPos = PlayerSpawnManager.Instance.GetRandomSpawnPosition();
+            }
+            
+            GameObject bot = Instantiate(NetworkManager.Singleton.NetworkConfig.PlayerPrefab, spawnPos, Quaternion.identity);
+            NetworkObject netObj = bot.GetComponent<NetworkObject>();
+            if (netObj != null)
+            {
+                netObj.Spawn(true);
+                
+                BallController botController = bot.GetComponent<BallController>();
+                if (botController != null)
+                {
+                    botController.SetPlayerClassServerRpc(i);
+                    string botName = i == 1 ? "Sir Twink-a-Lot (Bot)" : (i == 2 ? "Sir Heals-a-Lot (Bot)" : "Sir Tanks-a-Lot (Bot)");
+                    botController.SetPlayerNameServerRpc(botName);
+                }
+            }
+        }
+    }
+
+    [ServerRpc]
+    public void ResetHealthToMaxServerRpc(int newMax)
+    {
+        maxHealth = newMax;
+        currentHealth.Value = newMax;
+        lastDamageTime = -10f;
+    }
+
+    [ServerRpc]
+    public void SetShieldHealthServerRpc(float value)
+    {
+        shieldHealth.Value = value;
+    }
+
+    [ServerRpc]
+    public void SetUberMeterServerRpc(float value)
+    {
+        uberMeter.Value = value;
+    }
+
+    // ── Heal Target (Healer beam / AOE) ──
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    public void HealTargetServerRpc(ulong targetNetworkObjectId, float amount)
+    {
+        if (!IsServer) return;
+        if (!NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetNetworkObjectId, out var netObj)) return;
+
+        BallController target = netObj.GetComponent<BallController>();
+        if (target == null) return;
+
+        // Heal normal health
+        target.currentHealth.Value = Mathf.Min(target.currentHealth.Value + Mathf.CeilToInt(amount), target.maxHealth);
+
+        // If target is Tank, also top up shield
+        if (target.maxShieldHealth > 0f && target.shieldHealth.Value < target.maxShieldHealth)
+        {
+            target.shieldHealth.Value = Mathf.Min(target.shieldHealth.Value + amount * 0.5f, target.maxShieldHealth);
+        }
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    public void HealSelfServerRpc(float amount)
+    {
+        if (!IsServer) return;
+        currentHealth.Value = Mathf.Min(currentHealth.Value + Mathf.CeilToInt(amount), maxHealth);
+    }
+
+    // ── Uber: Immortality ──
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    public void ActivateImmortalUberServerRpc(ulong targetNetworkObjectId, float duration)
+    {
+        if (!IsServer) return;
+
+        // Make self immortal
+        isImmortal.Value = true;
+        StartCoroutine(EndImmortalAfter(this, duration));
+
+        // Make target immortal too
+        if (targetNetworkObjectId != 0 &&
+            NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetNetworkObjectId, out var netObj))
+        {
+            BallController target = netObj.GetComponent<BallController>();
+            if (target != null)
+            {
+                target.isImmortal.Value = true;
+                StartCoroutine(EndImmortalAfter(target, duration));
+            }
+        }
+    }
+
+    private IEnumerator EndImmortalAfter(BallController target, float duration)
+    {
+        yield return new WaitForSeconds(duration);
+        if (target != null && target.IsSpawned)
+            target.isImmortal.Value = false;
+    }
+
+    // ── Uber: Teleport ally to self ──
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    public void TeleportAllyServerRpc(ulong targetNetworkObjectId)
+    {
+        if (!IsServer) return;
+        if (!NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetNetworkObjectId, out var netObj)) return;
+
+        BallController target = netObj.GetComponent<BallController>();
+        if (target == null) return;
+
+        // Teleport target to healer's position + small offset
+        Vector3 pos = transform.position + Vector3.up * 2f;
+        TeleportPlayerClientRpc(target.OwnerClientId, pos);
+    }
+
+    [ClientRpc]
+    private void TeleportPlayerClientRpc(ulong ownerClientId, Vector3 position)
+    {
+        if (NetworkManager.Singleton.LocalClientId != ownerClientId) return;
+
+        // Find local ball and move it
+        BallController[] all = Object.FindObjectsByType<BallController>(FindObjectsSortMode.None);
+        foreach (var ball in all)
+        {
+            if (ball.IsOwner)
+            {
+                ball.transform.position = position;
+                Rigidbody ballRb = ball.GetComponent<Rigidbody>();
+                if (ballRb != null)
+                {
+                    ballRb.linearVelocity = Vector3.zero;
+                    ballRb.angularVelocity = Vector3.zero;
+                }
+                Physics.SyncTransforms();
+                if (ball.CutsceneCameraRef != null) ball.CutsceneCameraRef.SnapToTarget();
+                break;
+            }
+        }
+    }
+
+    // ── Tank: Shield Bubble ──
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    public void ActivateBubbleServerRpc(float duration)
+    {
+        // Server-side: bubble protection is handled client-side via insideTankBubble flag
+        // This RPC exists for future server-side validation
+        Debug.Log($"[Tank] Bubble shield active for {duration:F1}s");
+    }
+
+    // ── Tank: Heavy Slam ──
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    public void TankHeavySlamServerRpc(float radius, float knockback, float killThreshold)
+    {
+        if (!IsServer) return;
+
+        // Wait for the ball to actually land (slight delay)
+        StartCoroutine(HeavySlamLandCheck(radius, knockback, killThreshold));
+    }
+
+    private IEnumerator HeavySlamLandCheck(float radius, float knockback, float killThreshold)
+    {
+        // Wait until we hit something (max 2 seconds)
+        float timer = 0f;
+        Rigidbody slamRb = GetComponent<Rigidbody>();
+        while (timer < 2f && slamRb != null && slamRb.linearVelocity.y < -1f)
+        {
+            timer += Time.fixedDeltaTime;
+            yield return new WaitForFixedUpdate();
+        }
+
+        // Impact!
+        Collider[] hits = Physics.OverlapSphere(transform.position, radius);
+        foreach (var hit in hits)
+        {
+            // Kill light enemies instantly
+            EnemyPlayer enemy = hit.GetComponent<EnemyPlayer>();
+            if (enemy != null && enemy.maxHealth <= killThreshold)
+            {
+                enemy.TakeDamage(enemy.maxHealth * 10f); // instant kill
+                continue;
+            }
+
+            // Knock bosses back hard
+            BossController boss = hit.GetComponent<BossController>();
+            if (boss != null)
+            {
+                boss.TakeDamage(damageMultiplier * 5f);
+                Rigidbody bossRb = boss.GetComponent<Rigidbody>();
+                if (bossRb != null)
+                {
+                    Vector3 push = (boss.transform.position - transform.position).normalized;
+                    push.y = 0.5f;
+                    bossRb.AddForce(push.normalized * knockback, ForceMode.Impulse);
+                }
+            }
+
+            // Knock other players
+            BallController otherBall = hit.GetComponent<BallController>();
+            if (otherBall != null && otherBall != this)
+            {
+                Rigidbody otherRb = otherBall.GetComponent<Rigidbody>();
+                if (otherRb != null)
+                {
+                    Vector3 push = (otherBall.transform.position - transform.position).normalized;
+                    push.y = 0.5f;
+                    otherRb.AddForce(push.normalized * knockback * 0.5f, ForceMode.Impulse);
+                }
+            }
+        }
+
+        Debug.Log("[Tank] HEAVY SLAM IMPACT!");
+    }
+
+    // ── Healer: Health on kill callback ──
+    private void OnEnemyKilled()
+    {
+        HealerAbility healerAbility = GetComponent<HealerAbility>();
+        if (healerAbility != null && healerAbility.enabled)
+        {
+            healerAbility.OnEnemyKilled();
+        }
+    }
+
+    // ═══ END CLASS SYSTEM ═════════════════════════════════════════
 
     private void OnDrawGizmosSelected()
     {
