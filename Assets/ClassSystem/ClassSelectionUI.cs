@@ -13,14 +13,14 @@ public class ClassSelectionUI : MonoBehaviour
     private Toggle aiToggle;
 
     // ─── Colours & Style ──────────────────────────────────────────
-    private static readonly Color BG_COLOR          = new Color(0.05f, 0.05f, 0.12f, 0.92f);
-    private static readonly Color CARD_BG           = new Color(0.12f, 0.12f, 0.22f, 0.95f);
-    private static readonly Color CARD_HOVER        = new Color(0.18f, 0.18f, 0.32f, 1f);
-    private static readonly Color LIGHT_ACCENT      = new Color(0.4f, 0.85f, 1f);
-    private static readonly Color HEALER_ACCENT     = new Color(0.3f, 1f, 0.5f);
-    private static readonly Color TANK_ACCENT       = new Color(1f, 0.6f, 0.2f);
-    private static readonly Color BTN_TEXT_COLOR     = new Color(0.05f, 0.05f, 0.1f);
-    private static readonly Color STAT_BAR_BG       = new Color(0.2f, 0.2f, 0.3f, 0.8f);
+    private static readonly Color BG_COLOR          = new Color(0.85f, 0.78f, 0.65f, 0.95f); // Parchment
+    private static readonly Color CARD_BG           = new Color(0.75f, 0.65f, 0.5f, 0.95f); // Darker parchment/wood
+    private static readonly Color CARD_HOVER        = new Color(0.8f, 0.7f, 0.55f, 1f);
+    private static readonly Color LIGHT_ACCENT      = new Color(0.8f, 0.2f, 0.2f); // Crimson red
+    private static readonly Color HEALER_ACCENT     = new Color(0.2f, 0.6f, 0.3f); // Forest green
+    private static readonly Color TANK_ACCENT       = new Color(0.2f, 0.3f, 0.8f); // Royal blue
+    private static readonly Color BTN_TEXT_COLOR    = new Color(0.9f, 0.85f, 0.7f); // Light text for buttons
+    private static readonly Color STAT_BAR_BG       = new Color(0.5f, 0.4f, 0.3f, 0.8f);
 
     // ─── Public API ───────────────────────────────────────────────
 
@@ -32,6 +32,21 @@ public class ClassSelectionUI : MonoBehaviour
         // Unlock cursor for menu
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
+
+        canvasGroup.alpha = 0f;
+        StartCoroutine(FadeIn());
+    }
+
+    private System.Collections.IEnumerator FadeIn()
+    {
+        float t = 0;
+        while (t < 0.25f)
+        {
+            t += Time.deltaTime;
+            canvasGroup.alpha = Mathf.Lerp(0f, 1f, t / 0.25f);
+            yield return null;
+        }
+        canvasGroup.alpha = 1f;
     }
 
     public void Hide()
@@ -40,6 +55,18 @@ public class ClassSelectionUI : MonoBehaviour
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
 
+        StartCoroutine(FadeOutAndDestroy());
+    }
+
+    private System.Collections.IEnumerator FadeOutAndDestroy()
+    {
+        float t = 0;
+        while (t < 0.25f)
+        {
+            t += Time.deltaTime;
+            canvasGroup.alpha = Mathf.Lerp(1f, 0f, t / 0.25f);
+            yield return null;
+        }
         Destroy(gameObject);
     }
 
@@ -72,10 +99,10 @@ public class ClassSelectionUI : MonoBehaviour
         titleRT.sizeDelta = new Vector2(800, 80);
 
         TextMeshProUGUI titleText = titleGO.AddComponent<TextMeshProUGUI>();
-        titleText.text = "CHOOSE YOUR CLASS";
-        titleText.fontSize = 42;
+        titleText.text = "CHOOSE THY CLASS";
+        titleText.fontSize = 64;
         titleText.alignment = TextAlignmentOptions.Center;
-        titleText.color = Color.white;
+        titleText.color = Color.black;
         titleText.fontStyle = FontStyles.Bold;
 
         // ── Subtitle ──
@@ -89,9 +116,9 @@ public class ClassSelectionUI : MonoBehaviour
 
         TextMeshProUGUI subText = subtitleGO.AddComponent<TextMeshProUGUI>();
         subText.text = "Each class changes how you play. Choose wisely.";
-        subText.fontSize = 18;
+        subText.fontSize = 24;
         subText.alignment = TextAlignmentOptions.Center;
-        subText.color = new Color(0.7f, 0.7f, 0.8f);
+        subText.color = Color.black;
 
         // ── Card Container (horizontal layout) ──
         GameObject containerGO = CreateChild("CardContainer", root);
@@ -100,10 +127,10 @@ public class ClassSelectionUI : MonoBehaviour
         containerRT.anchorMax = new Vector2(0.5f, 0.5f);
         containerRT.pivot = new Vector2(0.5f, 0.5f);
         containerRT.anchoredPosition = new Vector2(0, -20f);
-        containerRT.sizeDelta = new Vector2(1050, 480);
+        containerRT.sizeDelta = new Vector2(1200, 600); // Larger to fit big text
 
         HorizontalLayoutGroup hlg = containerGO.AddComponent<HorizontalLayoutGroup>();
-        hlg.spacing = 25;
+        hlg.spacing = 30;
         hlg.childAlignment = TextAnchor.MiddleCenter;
         hlg.childControlWidth = true;
         hlg.childControlHeight = true;
@@ -145,45 +172,45 @@ public class ClassSelectionUI : MonoBehaviour
                 new StatBar("Utility", 0.75f, new Color(0.6f,0.8f,1f)),
             });
 
-        // ── AI Team Toggle (Monty Python joke) ──
+        // ── AI Team Toggle (Placed to the right of the cards) ──
         GameObject toggleGO = CreateChild("AIToggle", root);
         RectTransform toggleRT = toggleGO.GetComponent<RectTransform>();
-        toggleRT.anchorMin = new Vector2(0.5f, 0f);
-        toggleRT.anchorMax = new Vector2(0.5f, 0f);
-        toggleRT.pivot = new Vector2(0.5f, 0f);
-        toggleRT.anchoredPosition = new Vector2(0, 80f);
-        toggleRT.sizeDelta = new Vector2(500, 40);
+        toggleRT.anchorMin = new Vector2(0.5f, 0.5f);
+        toggleRT.anchorMax = new Vector2(0.5f, 0.5f);
+        toggleRT.pivot = new Vector2(0f, 0.5f); // Left pivot so it flows rightwards
+        toggleRT.anchoredPosition = new Vector2(620f, -20f); // 1200 / 2 = 600 + 20 spacing
+        toggleRT.sizeDelta = new Vector2(250, 200);
 
-        HorizontalLayoutGroup toggleHLG = toggleGO.AddComponent<HorizontalLayoutGroup>();
-        toggleHLG.childAlignment = TextAnchor.MiddleCenter;
-        toggleHLG.spacing = 15;
-        toggleHLG.childControlWidth = false;
-        toggleHLG.childControlHeight = false;
+        VerticalLayoutGroup toggleVLG = toggleGO.AddComponent<VerticalLayoutGroup>();
+        toggleVLG.childAlignment = TextAnchor.MiddleCenter;
+        toggleVLG.spacing = 15;
+        toggleVLG.childControlWidth = false;
+        toggleVLG.childControlHeight = false;
 
         // The checkbox background
         GameObject bgGO = CreateChild("Background", toggleRT);
         Image bgImg = bgGO.AddComponent<Image>();
-        bgImg.color = new Color(0.2f, 0.2f, 0.3f);
+        bgImg.color = new Color(0.6f, 0.5f, 0.4f);
         RectTransform bgRT = bgGO.GetComponent<RectTransform>();
-        bgRT.sizeDelta = new Vector2(30, 30);
+        bgRT.sizeDelta = new Vector2(50, 50);
 
         // The checkmark
         GameObject checkmarkGO = CreateChild("Checkmark", bgRT);
         RectTransform checkmarkRT = checkmarkGO.GetComponent<RectTransform>();
         checkmarkRT.anchorMin = Vector2.zero;
         checkmarkRT.anchorMax = Vector2.one;
-        checkmarkRT.offsetMin = new Vector2(4, 4);
-        checkmarkRT.offsetMax = new Vector2(-4, -4);
+        checkmarkRT.offsetMin = new Vector2(6, 6);
+        checkmarkRT.offsetMax = new Vector2(-6, -6);
         Image checkmarkImg = checkmarkGO.AddComponent<Image>();
         checkmarkImg.color = LIGHT_ACCENT;
 
         // The text
         GameObject labelGO = CreateChild("Label", toggleRT);
         TextMeshProUGUI labelTMP = labelGO.AddComponent<TextMeshProUGUI>();
-        labelTMP.text = "Summon the Autonoma-Knights? (They have no brains, but neither do you!)";
-        labelTMP.fontSize = 18;
-        labelTMP.color = Color.white;
-        labelTMP.alignment = TextAlignmentOptions.MidlineLeft;
+        labelTMP.text = "Summon AI Knights?\n<size=16>(Warning: Mostly useless)</size>";
+        labelTMP.fontSize = 24;
+        labelTMP.color = Color.black;
+        labelTMP.alignment = TextAlignmentOptions.Center;
 
         // The toggle component
         aiToggle = toggleGO.AddComponent<Toggle>();
@@ -231,7 +258,7 @@ public class ClassSelectionUI : MonoBehaviour
         GameObject titleGO = CreateChild("Title", cardGO.GetComponent<RectTransform>());
         TextMeshProUGUI titleTMP = titleGO.AddComponent<TextMeshProUGUI>();
         titleTMP.text = title;
-        titleTMP.fontSize = 28;
+        titleTMP.fontSize = 40;
         titleTMP.alignment = TextAlignmentOptions.Center;
         titleTMP.color = accent;
         titleTMP.fontStyle = FontStyles.Bold;
@@ -242,11 +269,11 @@ public class ClassSelectionUI : MonoBehaviour
         GameObject descGO = CreateChild("Desc", cardGO.GetComponent<RectTransform>());
         TextMeshProUGUI descTMP = descGO.AddComponent<TextMeshProUGUI>();
         descTMP.text = description;
-        descTMP.fontSize = 14;
+        descTMP.fontSize = 20;
         descTMP.alignment = TextAlignmentOptions.Center;
-        descTMP.color = new Color(0.75f, 0.75f, 0.85f);
+        descTMP.color = Color.black;
         LayoutElement descLE = descGO.AddComponent<LayoutElement>();
-        descLE.preferredHeight = 90;
+        descLE.preferredHeight = 130;
 
         // ── Spacer ──
         GameObject spacer1 = CreateChild("Spacer", cardGO.GetComponent<RectTransform>());
@@ -277,7 +304,7 @@ public class ClassSelectionUI : MonoBehaviour
         btn.colors = cb;
 
         LayoutElement btnLE = btnGO.AddComponent<LayoutElement>();
-        btnLE.preferredHeight = 45;
+        btnLE.preferredHeight = 60;
 
         // Button text
         GameObject btnTextGO = CreateChild("Text", btnGO.GetComponent<RectTransform>());
@@ -289,7 +316,7 @@ public class ClassSelectionUI : MonoBehaviour
 
         TextMeshProUGUI btnText = btnTextGO.AddComponent<TextMeshProUGUI>();
         btnText.text = "SELECT";
-        btnText.fontSize = 22;
+        btnText.fontSize = 28;
         btnText.alignment = TextAlignmentOptions.Center;
         btnText.color = BTN_TEXT_COLOR;
         btnText.fontStyle = FontStyles.Bold;
@@ -306,7 +333,7 @@ public class ClassSelectionUI : MonoBehaviour
         // Row container
         GameObject rowGO = CreateChild($"Stat_{stat.label}", parent);
         LayoutElement rowLE = rowGO.AddComponent<LayoutElement>();
-        rowLE.preferredHeight = 26;
+        rowLE.preferredHeight = 32;
 
         // Label
         GameObject labelGO = CreateChild("Label", rowGO.GetComponent<RectTransform>());
@@ -318,9 +345,9 @@ public class ClassSelectionUI : MonoBehaviour
 
         TextMeshProUGUI labelTMP = labelGO.AddComponent<TextMeshProUGUI>();
         labelTMP.text = stat.label;
-        labelTMP.fontSize = 13;
+        labelTMP.fontSize = 18;
         labelTMP.alignment = TextAlignmentOptions.MidlineLeft;
-        labelTMP.color = new Color(0.6f, 0.6f, 0.7f);
+        labelTMP.color = Color.black;
 
         // Bar background
         GameObject barBG = CreateChild("BarBG", rowGO.GetComponent<RectTransform>());

@@ -21,6 +21,10 @@ public class BallController : NetworkBehaviour
     private Vector3 spawnPosition;
     private Quaternion spawnRotation;
 
+    [Header("Leap of Faith Spawn")]
+    public bool spawnInSky = true;
+    [HideInInspector] public bool isFallingFromSky = false;
+
     // ═══ CLASS SYSTEM ═════════════════════════════════════════════
     [Header("Class System")]
     [HideInInspector] public bool movementLocked = false;
@@ -160,7 +164,9 @@ public class BallController : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        if (IsOwner)
+        bool isLocalHumanPlayer = IsOwner && NetworkObject.IsPlayerObject;
+
+        if (isLocalHumanPlayer)
         {
             scoreCounter = Object.FindFirstObjectByType<ScoreCounter>();
             
@@ -205,6 +211,12 @@ public class BallController : NetworkBehaviour
                 
                 // Snap camera to the new spawned position
                 if (playerCameraController != null) playerCameraController.SnapToTarget();
+                
+                // Leap of Faith Setup
+                if (spawnInSky)
+                {
+                    isFallingFromSky = true;
+                }
             }
 
             // Diagnostic: Log current network configuration
@@ -234,6 +246,10 @@ public class BallController : NetworkBehaviour
 
             var remoteControllers = GetComponentsInChildren<CameraController>(true);
             foreach (var ctrl in remoteControllers) ctrl.enabled = false;
+
+            // ── Initialize Class System for Bots/Remote Players ──
+            classManager = gameObject.AddComponent<PlayerClassManager>();
+            classManager.Initialize(this);
         }
     }
 
@@ -267,40 +283,131 @@ public class BallController : NetworkBehaviour
     }
 
     // FixedUpdate is used for physics calculations
+    private Vector3 GetBotWorldMovement()
+    {
+        BallController[] allPlayers = Object.FindObjectsByType<BallController>(FindObjectsSortMode.None);
+        BallController nearestHuman = null;
+        float shortestHumanDist = Mathf.Infinity;
+
+        foreach (var p in allPlayers)
+        {
+            if (p.NetworkObject.IsPlayerObject)
+            {
+                float d = Vector3.Distance(transform.position, p.transform.position);
+                if (d < shortestHumanDist)
+                {
+                    shortestHumanDist = d;
+                    nearestHuman = p;
+                }
+            }
+        }
+
+        EnemyPlayer nearestEnemy = null;
+        float shortestEnemyDist = Mathf.Infinity;
+        EnemyPlayer[] allEnemies = Object.FindObjectsByType<EnemyPlayer>(FindObjectsSortMode.None);
+        foreach (var e in allEnemies)
+        {
+            float d = Vector3.Distance(transform.position, e.transform.position);
+            if (d < shortestEnemyDist)
+            {
+                shortestEnemyDist = d;
+                nearestEnemy = e;
+            }
+        }
+
+        BossController nearestBoss = null;
+        float shortestBossDist = Mathf.Infinity;
+        BossController[] allBosses = Object.FindObjectsByType<BossController>(FindObjectsSortMode.None);
+        foreach (var b in allBosses)
+        {
+            float d = Vector3.Distance(transform.position, b.transform.position);
+            if (d < shortestBossDist)
+            {
+                shortestBossDist = d;
+                nearestBoss = b;
+            }
+        }
+
+        // Determine if we should attack an enemy or boss
+        Transform attackTarget = null;
+        float targetDist = Mathf.Infinity;
+
+        if (nearestEnemy != null && shortestEnemyDist < 20f)
+        {
+            attackTarget = nearestEnemy.transform;
+            targetDist = shortestEnemyDist;
+        }
+        else if (nearestBoss != null && shortestBossDist < 30f)
+        {
+            attackTarget = nearestBoss.transform;
+            targetDist = shortestBossDist;
+        }
+
+        if (attackTarget != null)
+        {
+            if (targetDist < attackRange)
+            {
+                attackTriggered = true;
+                lungeTarget = attackTarget;
+            }
+            Vector3 dir = (attackTarget.position - transform.position).normalized;
+            dir.y = 0;
+            return dir.normalized;
+        }
+
+        if (nearestHuman != null && shortestHumanDist > 4f)
+        {
+            Vector3 dir = (nearestHuman.transform.position - transform.position).normalized;
+            dir.y = 0;
+            return dir.normalized;
+        }
+
+        return Vector3.zero;
+    }
+
     void FixedUpdate()
     {
         if (!IsOwner) return;
-        if (movementLocked) return; // Locked until class is chosen
+        if (movementLocked || isFallingFromSky) return; // Locked until class is chosen or landed
 
         // Reset bubble flag each physics tick (TankAbility re-sets it if still inside)
         insideTankBubble = false;
 
-        // Read the movement input value
-        Vector2 moveInput = moveAction.ReadValue<Vector2>();
+        Vector3 movement = Vector3.zero;
 
-        // Get camera forward and right vectors - use playerCameraController if available
-        Vector3 camForward = Vector3.forward;
-        Vector3 camRight = Vector3.right;
-
-        if (playerCameraController != null)
+        if (!NetworkObject.IsPlayerObject && IsServer)
         {
-            camForward = playerCameraController.transform.forward;
-            camRight = playerCameraController.transform.right;
+            movement = GetBotWorldMovement();
         }
-        else if (Camera.main != null)
+        else
         {
-            camForward = Camera.main.transform.forward;
-            camRight = Camera.main.transform.right;
+            // Read the movement input value
+            Vector2 moveInput = moveAction.ReadValue<Vector2>();
+
+            // Get camera forward and right vectors - use playerCameraController if available
+            Vector3 camForward = Vector3.forward;
+            Vector3 camRight = Vector3.right;
+
+            if (playerCameraController != null)
+            {
+                camForward = playerCameraController.transform.forward;
+                camRight = playerCameraController.transform.right;
+            }
+            else if (Camera.main != null)
+            {
+                camForward = Camera.main.transform.forward;
+                camRight = Camera.main.transform.right;
+            }
+
+            // Project vectors onto the XZ plane (ignore Y) and normalize
+            camForward.y = 0;
+            camRight.y = 0;
+            camForward.Normalize();
+            camRight.Normalize();
+
+            // Create a movement vector based on input relative to the camera
+            movement = (camForward * moveInput.y + camRight * moveInput.x).normalized;
         }
-
-        // Project vectors onto the XZ plane (ignore Y) and normalize
-        camForward.y = 0;
-        camRight.y = 0;
-        camForward.Normalize();
-        camRight.Normalize();
-
-        // Create a movement vector based on input relative to the camera
-        Vector3 movement = (camForward * moveInput.y + camRight * moveInput.x).normalized;
 
         // Apply force to the ball
         rb.AddForce(movement * speed);
@@ -478,6 +585,21 @@ public class BallController : NetworkBehaviour
     {
         if (!IsOwner) return;
 
+        // --- Leap of Faith Landing ---
+        if (isFallingFromSky)
+        {
+            HayPile hayPile = other.GetComponent<HayPile>();
+            if (hayPile != null)
+            {
+                isFallingFromSky = false;
+                if (hayPile.cushionFall)
+                {
+                    rb.linearVelocity = new Vector3(rb.linearVelocity.x, 0f, rb.linearVelocity.z);
+                }
+                Debug.Log("Landed safely in a Hay Pile via Trigger! Movement unlocked.");
+            }
+        }
+
         bool isInGoalLayer = (((1 << other.gameObject.layer) & goalLayer) != 0);
         Debug.Log($"Entered trigger: {other.gameObject.name} (Layer: {LayerMask.LayerToName(other.gameObject.layer)}, Mask: {goalLayer.value}, Matches: {isInGoalLayer})");
 
@@ -531,6 +653,27 @@ public class BallController : NetworkBehaviour
     private void OnCollisionEnter(Collision collision)
     {
         if (!IsOwner) return;
+
+        // --- Leap of Faith Landing ---
+        if (isFallingFromSky)
+        {
+            HayPile hayPile = collision.gameObject.GetComponent<HayPile>();
+            if (hayPile != null)
+            {
+                isFallingFromSky = false;
+                if (hayPile.cushionFall)
+                {
+                    rb.linearVelocity = new Vector3(rb.linearVelocity.x, 0f, rb.linearVelocity.z);
+                }
+                Debug.Log("Landed safely in a Hay Pile! Movement unlocked.");
+            }
+            else if (((1 << collision.gameObject.layer) & groundLayer) != 0)
+            {
+                // Missed the hay pile and hit the ground!
+                isFallingFromSky = false;
+                Debug.Log("Missed the hay pile and hit the ground! Movement unlocked anyway.");
+            }
+        }
 
         // Dampen bounce if slamming
         if (isSlamming)
@@ -620,11 +763,17 @@ public class BallController : NetworkBehaviour
         BallController otherPlayer = collision.gameObject.GetComponent<BallController>();
         if (otherPlayer != null && otherPlayer != this)
         {
-            int pvpDamage = Mathf.FloorToInt(impactSpeed * damageMultiplier);
-            
-            if (pvpDamage > 0)
+            bool isThisBot = !NetworkObject.IsPlayerObject;
+            bool isOtherBot = !otherPlayer.NetworkObject.IsPlayerObject;
+
+            if (!isThisBot && !isOtherBot) // Only apply damage if BOTH are humans
             {
-                otherPlayer.TakeDamageServerRpc(pvpDamage);
+                int pvpDamage = Mathf.FloorToInt(impactSpeed * damageMultiplier);
+                
+                if (pvpDamage > 0)
+                {
+                    otherPlayer.TakeDamageServerRpc(pvpDamage);
+                }
             }
 
             // Knock the other player back
@@ -751,10 +900,23 @@ public class BallController : NetworkBehaviour
     {
         if (!IsServer) return;
         
+        System.Collections.Generic.List<int> availableClasses = new System.Collections.Generic.List<int>();
         for (int i = 1; i <= 3; i++)
         {
-            if (i == excludedClassType) continue;
-            
+            if (i != excludedClassType) availableClasses.Add(i);
+        }
+        
+        // Shuffle available classes
+        for (int i = 0; i < availableClasses.Count; i++)
+        {
+            int temp = availableClasses[i];
+            int randomIndex = Random.Range(i, availableClasses.Count);
+            availableClasses[i] = availableClasses[randomIndex];
+            availableClasses[randomIndex] = temp;
+        }
+
+        foreach (int classType in availableClasses)
+        {
             Vector3 spawnPos = transform.position + new Vector3(Random.Range(-5f, 5f), 5f, Random.Range(-5f, 5f));
             if (PlayerSpawnManager.Instance != null)
             {
@@ -770,8 +932,8 @@ public class BallController : NetworkBehaviour
                 BallController botController = bot.GetComponent<BallController>();
                 if (botController != null)
                 {
-                    botController.SetPlayerClassServerRpc(i);
-                    string botName = i == 1 ? "Sir Twink-a-Lot (Bot)" : (i == 2 ? "Sir Heals-a-Lot (Bot)" : "Sir Tanks-a-Lot (Bot)");
+                    botController.SetPlayerClassServerRpc(classType);
+                    string botName = classType == 1 ? "Sir Twink-a-Lot (Bot)" : (classType == 2 ? "Sir Heals-a-Lot (Bot)" : "Sir Tanks-a-Lot (Bot)");
                     botController.SetPlayerNameServerRpc(botName);
                 }
             }

@@ -92,10 +92,15 @@ public class PlayerClassManager : MonoBehaviour
         tank = gameObject.AddComponent<TankAbility>();
         tank.enabled = false;
 
-        // Create the selection UI (only for local owner)
-        if (ball.IsOwner)
+        // Create the selection UI (only for local human player)
+        if (ball.IsOwner && ball.NetworkObject.IsPlayerObject)
         {
             StartCoroutine(ShowSelectionUIDelayed());
+        }
+        else if (!ball.NetworkObject.IsPlayerObject)
+        {
+            // Unlock movement immediately for bots
+            ball.movementLocked = false;
         }
     }
 
