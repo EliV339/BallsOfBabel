@@ -19,6 +19,11 @@ public class BillboardSpriteAnimator : MonoBehaviour
     public int cols = 4;
     public int rows = 3;
 
+    [Header("Class Specific Textures")]
+    public Texture2D lightClassSpritesheet;
+    public Texture2D tankClassSpritesheet;
+    public Texture2D healerClassSpritesheet;
+
     // ── Animation ────────────────────────────────────────────────
     [Header("Animation")]
     public float fps = 8f;
@@ -108,6 +113,8 @@ public class BillboardSpriteAnimator : MonoBehaviour
     private bool       isGoal     = false;
     private float      goalTimer  = 0f;
 
+    private int        currentClassIndex = -1; // Tracks the currently applied class sprite
+
     // ─────────────────────────────────────────────────────────────
     // Unity lifecycle
     // ─────────────────────────────────────────────────────────────
@@ -177,6 +184,24 @@ public class BillboardSpriteAnimator : MonoBehaviour
         goalTimer = goalDuration;
     }
 
+    /// <summary>
+    /// Updates the billboarding texture based on the player's selected class.
+    /// Matches PlayerClassType enum: 1 = Light, 2 = Healer, 3 = Tank
+    /// </summary>
+    public void SetClassSprite(int classIndex)
+    {
+        Texture2D newTex = spritesheet; // Default fallback
+        
+        if (classIndex == 1 && lightClassSpritesheet != null) newTex = lightClassSpritesheet;
+        else if (classIndex == 2 && healerClassSpritesheet != null) newTex = healerClassSpritesheet;
+        else if (classIndex == 3 && tankClassSpritesheet != null) newTex = tankClassSpritesheet;
+
+        if (mat != null && newTex != null)
+        {
+            mat.mainTexture = newTex;
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Internal helpers
     // ─────────────────────────────────────────────────────────────
@@ -189,6 +214,17 @@ public class BillboardSpriteAnimator : MonoBehaviour
 
     void UpdateState()
     {
+        // --- Networked Class Sprite Routing ---
+        if (ballController != null)
+        {
+            int netClass = ballController.playerClass.Value;
+            if (netClass != currentClassIndex)
+            {
+                currentClassIndex = netClass;
+                SetClassSprite(currentClassIndex);
+            }
+        }
+
         // --- Goal override (timed) ---
         if (isGoal)
         {

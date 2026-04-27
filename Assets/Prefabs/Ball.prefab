@@ -300,6 +300,9 @@ MonoBehaviour:
   spritesheet: {fileID: 2800000, guid: 0ed4773b71e06fd40a4e1b79273863d8, type: 3}
   cols: 4
   rows: 3
+  lightClassSpritesheet: {fileID: 2800000, guid: 0ed4773b71e06fd40a4e1b79273863d8, type: 3}
+  tankClassSpritesheet: {fileID: 2800000, guid: 72e5784bb76e58e4594baa04a0bd56a0, type: 3}
+  healerClassSpritesheet: {fileID: 2800000, guid: 2204b1bae7d0ef74dbca884df46adf41, type: 3}
   fps: 8
   moveThreshold: 1.5
   fallVelocityThreshold: -2
@@ -509,6 +512,8 @@ MonoBehaviour:
   damageCooldown: 1.5
   currentHealth:
     m_InternalValue: 3
+  spawnInSky: 1
+  isFallingFromSky: 0
   movementLocked: 0
   playerClass:
     m_InternalValue: 0
